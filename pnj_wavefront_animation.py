@@ -111,41 +111,37 @@ print(f"Resolution: {resolution} pixels/µm")
 print(f"Time step between frames: {dt_frame:.2f} MEEP time units\n")
 
 # ----------- Field Capture Function -----------
-class FieldCapture:
-    """Captures field data at specified time intervals"""
-    def __init__(self, sim, n_frames, dt_frame):
-        self.sim = sim
-        self.n_frames = n_frames
-        self.dt_frame = dt_frame
-        self.frames = []
-        self.times = []
-        self.frame_count = 0
-        self.next_capture_time = 0
+def make_field_capture():
+    """Factory function to create field capture callback"""
+    frames = []
+    times = []
+    frame_count = [0]  # Use list to make it mutable in closure
 
-    def capture_frame(self):
+    def capture_fields(sim):
         """Capture current field state"""
         # Get XZ slice at y=0
         size = mp.Vector3(sx, 0, sz)
         center = mp.Vector3(0, 0, 0)
 
-        Ex = self.sim.get_array(center=center, size=size, component=mp.Ex)
-        Ey = self.sim.get_array(center=center, size=size, component=mp.Ey)
-        Ez = self.sim.get_array(center=center, size=size, component=mp.Ez)
+        Ex = sim.get_array(center=center, size=size, component=mp.Ex)
+        Ey = sim.get_array(center=center, size=size, component=mp.Ey)
+        Ez = sim.get_array(center=center, size=size, component=mp.Ez)
 
         # Calculate intensity
         I = np.abs(Ex)**2 + np.abs(Ey)**2 + np.abs(Ez)**2
 
-        self.frames.append(I)
-        self.times.append(self.sim.meep_time())
-        self.frame_count += 1
+        frames.append(I)
+        times.append(sim.meep_time())
+        frame_count[0] += 1
 
-        print(f"  Captured frame {self.frame_count}/{self.n_frames} at t={self.sim.meep_time():.2f}")
+        print(f"  Captured frame {frame_count[0]}/{n_frames} at t={sim.meep_time():.2f}")
 
-    def __call__(self, sim, todo):
-        """Called by MEEP at each timestep"""
-        if sim.meep_time() >= self.next_capture_time:
-            self.capture_frame()
-            self.next_capture_time += self.dt_frame
+    # Attach data storage to the function so we can access it later
+    capture_fields.frames = frames
+    capture_fields.times = times
+    capture_fields.frame_count = frame_count
+
+    return capture_fields
 
 # ----------- Create and Run Simulation -----------
 print("[Starting simulation...]")
@@ -160,11 +156,11 @@ sim = mp.Simulation(
 
 sim.sources = [make_gaussian_beam(angle)]
 
-# Create field capture object
-field_capture = FieldCapture(sim, n_frames, dt_frame)
+# Create field capture function
+field_capture = make_field_capture()
 
 # Run simulation with field capture
-sim.run(mp.at_every(dt_frame/2, field_capture), until=T_RUN)
+sim.run(mp.at_every(dt_frame, field_capture), until=T_RUN)
 
 print(f"\n[Simulation complete] Captured {len(field_capture.frames)} frames")
 
